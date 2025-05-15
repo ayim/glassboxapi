@@ -226,7 +226,7 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 print(f"  👤 Assigned To: {assignee_name}")
                 
                 # Check if assigned to claims agent
-                if assignee_name.lower() == "Glassbox":
+                if assignee_name.lower() == "glassbox":
                     print("  🚨 Task assigned to claims agent - sending Slack notification")
                     
                     # Prepare Slack message
