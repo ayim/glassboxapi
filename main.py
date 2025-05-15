@@ -51,14 +51,14 @@ class SlackMessage(BaseModel):
     channel: Optional[str] = SLACK_DEFAULT_CHANNEL
     blocks: Optional[List[Dict[str, Any]]] = None
 
-def get_asana_client():
+async def get_asana_client():
     if not ASANA_ACCESS_TOKEN:
         raise HTTPException(
             status_code=500,
             detail="Missing Asana OAuth access token. Please authenticate first."
         )
     
-    return httpx.Client(
+    return httpx.AsyncClient(
         base_url="https://app.asana.com/api/1.0",
         headers={
             "Authorization": f"Bearer {ASANA_ACCESS_TOKEN}",
@@ -228,7 +228,7 @@ async def register_webhook(request: Request):
         print(f"  Access Token: {ASANA_ACCESS_TOKEN[:10]}...")  # Log first 10 chars of token
         
         print("  Creating Asana client...")
-        client = get_asana_client()
+        client = await get_asana_client()
         print("  ✅ Asana client created successfully")
         
         # Get the base URL from the request
@@ -242,7 +242,7 @@ async def register_webhook(request: Request):
         # First, verify the project exists
         try:
             print("  🔍 Verifying project exists...")
-            project_response = client.get(f"/projects/{ASANA_PROJECT_ID}")
+            project_response = await client.get(f"/projects/{ASANA_PROJECT_ID}")
             print("  Project response received")
             project_response.raise_for_status()
             print(f"  ✅ Project verification successful: {project_response.json()}")
@@ -278,7 +278,7 @@ async def register_webhook(request: Request):
             print("  Request URL: https://app.asana.com/api/1.0/webhooks")
             print("  Request Headers:", client.headers)
             
-            response = client.post("/webhooks", json=registration_payload)
+            response = await client.post("/webhooks", json=registration_payload)
             print("  📥 Received response from Asana")
             print(f"  Response Status: {response.status_code}")
             print(f"  Response Headers: {dict(response.headers)}")
@@ -317,6 +317,8 @@ async def register_webhook(request: Request):
                 status_code=500,
                 detail=f"Unexpected error during webhook registration: {str(e)}"
             )
+        finally:
+            await client.aclose()
         
     except HTTPException:
         print("  ❌ HTTP Exception raised")
