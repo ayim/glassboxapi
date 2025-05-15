@@ -206,16 +206,72 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
         print(f"  Event Action: {action}")
         print(f"  Resource GID: {resource_gid}")
         print(f"  Resource Type: {resource_type}")
-        if resource_type == "task":
+        
+        # Check if this is a task update
+        if resource_type == "task" and action == "changed":
             try:
                 client = await get_asana_client()
                 task_response = await client.get(f"/tasks/{resource_gid}")
                 task_response.raise_for_status()
                 task_data = task_response.json().get("data", {})
-                assignee = task_data.get("assignee", {}).get("name", "Unassigned")
-                name = task_data.get("name", "Unnamed Task")
-                print(f"  📝 Task Name: {name}")
-                print(f"  👤 Assigned To: {assignee}")
+                
+                # Get task details
+                assignee = task_data.get("assignee", {})
+                assignee_name = assignee.get("name", "Unassigned")
+                assignee_gid = assignee.get("gid")
+                task_name = task_data.get("name", "Unnamed Task")
+                task_url = f"https://app.asana.com/0/{ASANA_PROJECT_ID}/{resource_gid}"
+                
+                print(f"  📝 Task Name: {task_name}")
+                print(f"  👤 Assigned To: {assignee_name}")
+                
+                # Check if assigned to claims agent
+                if assignee_name.lower() == "claims agent":
+                    print("  🚨 Task assigned to claims agent - sending Slack notification")
+                    
+                    # Prepare Slack message
+                    slack_message = {
+                        "text": f"Task {task_name} has been assigned to Claims Agent",
+                        "channel": "#claims-escalation",
+                        "blocks": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"🔺 *Task escalated by agent*\nTask ID: `{resource_gid}`\n<{task_url}|View task in Asana>"
+                                }
+                            },
+                            {
+                                "type": "context",
+                                "elements": [
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": "*Key decision:* Claim not auto-approved due to ambiguous description"
+                                    },
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": "*Confidence:* 63%  ·  *Reasoning:* LLM could not match terms like 'hail damage' or 'covered peril' with policy clause. Possible prior incident implied but not confirmed."
+                                    },
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": "*Tools used:* RAG:PolicySearch, ExternalTool:ClaimHistoryLookup"
+                                    },
+                                    {
+                                        "type": "mrkdwn",
+                                        "text": "*Sources consulted:* Policy ID #4481, user claim note, 2023 incident report"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                    
+                    # Send to Slack
+                    try:
+                        slack_response = slack_client.chat_postMessage(**slack_message)
+                        print(f"  ✅ Slack notification sent successfully")
+                    except SlackApiError as e:
+                        print(f"  ❌ Failed to send Slack notification: {str(e)}")
+                
                 await client.aclose()
             except Exception as e:
                 print(f"  ⚠️ Failed to fetch task details: {str(e)}")
