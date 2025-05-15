@@ -97,7 +97,7 @@ async def register_webhook(request: Request):
     try:
         print("\n🚀 Registering webhook with Asana...")
         with get_asana_client() as client:
-            target_url = "https://e0d9-2600-4041-799a-f100-94fa-84f-c740-d6d2.ngrok-free.app/webhook"
+            target_url = "https://glassboxapi.onrender.com/webhook"
             
             registration_payload = {
                 "data": {
