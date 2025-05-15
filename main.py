@@ -97,8 +97,24 @@ async def register_webhook(request: Request):
     try:
         print("\n🚀 Registering webhook with Asana...")
         with get_asana_client() as client:
-            target_url = "https://glassboxapi.onrender.com/webhook"
-            
+            # Get the base URL from the request
+            base_url = str(request.base_url).rstrip('/')
+            target_url = f"{base_url}/webhook"
+            print(f"  Using target URL: {target_url}")
+            print(f"  For Asana Project ID: {ASANA_PROJECT_ID}")
+
+            # First, verify the project exists
+            try:
+                project_response = client.get(f"/projects/{ASANA_PROJECT_ID}")
+                project_response.raise_for_status()
+                print(f"  Project verification successful: {project_response.json()}")
+            except Exception as e:
+                print(f"  ❌ Project verification failed: {str(e)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid project ID or insufficient permissions: {str(e)}"
+                )
+
             registration_payload = {
                 "data": {
                     "resource": ASANA_PROJECT_ID,
@@ -111,25 +127,51 @@ async def register_webhook(request: Request):
                     ]
                 }
             }
-
-            response = client.post("/webhooks", json=registration_payload)
-            response.raise_for_status()
             
-            webhook_data = response.json().get('data', {})
-            print(f"\n✅ Webhook registered successfully:")
-            print(f"  Webhook GID: {webhook_data.get('gid')}")
-            print(f"  Target URL: {webhook_data.get('target')}")
-            print(f"  Active: {webhook_data.get('active')}")
+            print(f"  Registration payload: {json.dumps(registration_payload, indent=2)}")
             
-            return {"status": "success", "webhook_details": webhook_data}
+            # Try to register the webhook
+            try:
+                response = client.post("/webhooks", json=registration_payload)
+                response.raise_for_status()
+                
+                webhook_data = response.json().get('data', {})
+                print(f"\n✅ Webhook registered successfully:")
+                print(f"  Webhook GID: {webhook_data.get('gid')}")
+                print(f"  Target URL: {webhook_data.get('target')}")
+                print(f"  Active: {webhook_data.get('active')}")
+                
+                return {"status": "success", "webhook_details": webhook_data}
+                
+            except httpx.HTTPStatusError as e:
+                error_body = e.response.text
+                try:
+                    error_json = json.loads(error_body)
+                    error_message = error_json.get('errors', [{}])[0].get('message', str(e))
+                except:
+                    error_message = str(e)
+                
+                print(f"  ❌ Asana API error: {error_message}")
+                print(f"  Response status: {e.response.status_code}")
+                print(f"  Response body: {error_body}")
+                
+                raise HTTPException(
+                    status_code=e.response.status_code,
+                    detail=f"Asana API error: {error_message}"
+                )
             
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"❌ Error registering webhook: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"  ❌ Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}"
+        )
 
 @app.get("/list-webhooks")
 async def list_existing_webhooks():
-    if not all([ASANA_ACCESS_TOKEN, ASANA_WORKSPACE_ID]):
+    if not all([ASANA_ACCESS_TOKEN, ASANA_ACCESS_TOKEN]):
         raise HTTPException(status_code=500, detail="Missing required Asana configuration")
     
     try:
