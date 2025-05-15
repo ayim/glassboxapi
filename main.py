@@ -206,6 +206,19 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
         print(f"  Event Action: {action}")
         print(f"  Resource GID: {resource_gid}")
         print(f"  Resource Type: {resource_type}")
+        if resource_type == "task":
+            try:
+                client = await get_asana_client()
+                task_response = await client.get(f"/tasks/{resource_gid}")
+                task_response.raise_for_status()
+                task_data = task_response.json().get("data", {})
+                assignee = task_data.get("assignee", {}).get("name", "Unassigned")
+                name = task_data.get("name", "Unnamed Task")
+                print(f"  📝 Task Name: {name}")
+                print(f"  👤 Assigned To: {assignee}")
+                await client.aclose()
+            except Exception as e:
+                print(f"  ⚠️ Failed to fetch task details: {str(e)}")
 
     return Response(
         status_code=200,
@@ -262,8 +275,16 @@ async def register_webhook(request: Request):
                 "target": target_url,
                 "filters": [
                     {
-                        "resource_type": "project",
+                        "resource_type": "task",
+                        "action": "added"
+                    },
+                    {
+                        "resource_type": "task",
                         "action": "changed"
+                    },
+                    {
+                        "resource_type": "task",
+                        "action": "deleted"
                     }
                 ]
             }
@@ -333,22 +354,47 @@ async def register_webhook(request: Request):
 
 @app.get("/list-webhooks")
 async def list_existing_webhooks():
-    if not all([ASANA_ACCESS_TOKEN, ASANA_ACCESS_TOKEN]):
+    """List all existing webhooks for the workspace."""
+    if not all([ASANA_ACCESS_TOKEN, ASANA_WORKSPACE_ID]):
         raise HTTPException(status_code=500, detail="Missing required Asana configuration")
     
     try:
-        with get_asana_client() as client:
-            response = client.get(
+        print("\n🔍 Listing existing webhooks...")
+        client = await get_asana_client()
+        
+        try:
+            response = await client.get(
                 "/webhooks",
                 params={"workspace": ASANA_WORKSPACE_ID}
             )
             response.raise_for_status()
             webhooks_data = response.json()
             
+            print(f"  ✅ Found {len(webhooks_data.get('data', []))} webhooks")
+            
             return {
                 "status": "success",
                 "webhooks": webhooks_data.get("data", [])
             }
+            
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            try:
+                error_json = json.loads(error_body)
+                error_message = error_json.get('errors', [{}])[0].get('message', str(e))
+            except:
+                error_message = str(e)
+            
+            print(f"  ❌ Asana API error: {error_message}")
+            print(f"  Response status: {e.response.status_code}")
+            print(f"  Response body: {error_body}")
+            
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Asana API error: {error_message}"
+            )
+        finally:
+            await client.aclose()
             
     except Exception as e:
         print(f"❌ Error listing webhooks: {str(e)}")
