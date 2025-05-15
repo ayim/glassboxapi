@@ -12,9 +12,14 @@ from slack_sdk.errors import SlackApiError
 
 load_dotenv()
 
-ASANA_ACCESS_TOKEN = os.getenv("ASANA_ACCESS_TOKEN")
+# Asana OAuth configuration
+ASANA_CLIENT_ID = os.getenv("ASANA_CLIENT_ID")
+ASANA_CLIENT_SECRET = os.getenv("ASANA_CLIENT_SECRET")
+ASANA_ACCESS_TOKEN = os.getenv("ASANA_ACCESS_TOKEN")  # This should be the OAuth token
 ASANA_WORKSPACE_ID = os.getenv("ASANA_WORKSPACE_ID")
 ASANA_PROJECT_ID = os.getenv("ASANA_PROJECT_ID")
+
+# Slack configuration
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 SLACK_DEFAULT_CHANNEL = os.getenv("SLACK_DEFAULT_CHANNEL", "#general")
 
@@ -47,6 +52,12 @@ class SlackMessage(BaseModel):
     blocks: Optional[List[Dict[str, Any]]] = None
 
 def get_asana_client():
+    if not ASANA_ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=500,
+            detail="Missing Asana OAuth access token. Please authenticate first."
+        )
+    
     return httpx.Client(
         base_url="https://app.asana.com/api/1.0",
         headers={
@@ -63,6 +74,99 @@ slack_client = WebClient(token=SLACK_BOT_TOKEN)
 @app.get("/")
 async def root():
     return {"status": "healthy", "service": "Asana Webhook API"}
+
+@app.get("/auth/asana")
+async def asana_auth(request: Request):
+    """Generate Asana OAuth authorization URL."""
+    if not ASANA_CLIENT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="Missing Asana client ID"
+        )
+    
+    # Generate the authorization URL with the correct redirect URI
+    redirect_uri = f"{request.base_url}auth/callback"
+    auth_url = (
+        f"https://app.asana.com/-/oauth_authorize"
+        f"?client_id={ASANA_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope=webhooks:write%20webhooks:read%20projects:read"
+    )
+    
+    print(f"\n🔑 Generated Asana OAuth URL:")
+    print(f"  Redirect URI: {redirect_uri}")
+    print(f"  Auth URL: {auth_url}")
+    
+    return {"auth_url": auth_url}
+
+@app.get("/auth/callback")
+async def asana_callback(request: Request, code: str):
+    """Handle Asana OAuth callback and exchange code for access token."""
+    if not all([ASANA_CLIENT_ID, ASANA_CLIENT_SECRET]):
+        raise HTTPException(
+            status_code=500,
+            detail="Missing Asana OAuth configuration"
+        )
+    
+    try:
+        # Get the redirect URI from the request
+        redirect_uri = f"{request.base_url}auth/callback"
+        print(f"\n🔄 Exchanging OAuth code for token:")
+        print(f"  Redirect URI: {redirect_uri}")
+        
+        # Exchange the code for an access token
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://app.asana.com/-/oauth_token",
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": ASANA_CLIENT_ID,
+                    "client_secret": ASANA_CLIENT_SECRET,
+                    "redirect_uri": redirect_uri,
+                    "code": code
+                }
+            )
+            response.raise_for_status()
+            token_data = response.json()
+            
+            print(f"  ✅ Successfully obtained access token")
+            print(f"  Token type: {token_data.get('token_type')}")
+            print(f"  Expires in: {token_data.get('expires_in')} seconds")
+            
+            # Store the access token (in production, use a secure storage)
+            global ASANA_ACCESS_TOKEN
+            ASANA_ACCESS_TOKEN = token_data["access_token"]
+            
+            return {
+                "status": "success",
+                "message": "Successfully authenticated with Asana",
+                "token_type": token_data["token_type"],
+                "expires_in": token_data["expires_in"]
+            }
+            
+    except httpx.HTTPStatusError as e:
+        error_body = e.response.text
+        try:
+            error_json = json.loads(error_body)
+            error_message = error_json.get('error_description', str(e))
+        except:
+            error_message = str(e)
+        
+        print(f"  ❌ OAuth error: {error_message}")
+        print(f"  Response status: {e.response.status_code}")
+        print(f"  Response body: {error_body}")
+        
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"OAuth error: {error_message}"
+        )
+    except Exception as e:
+        print(f"  ❌ Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}"
+        )
 
 @app.post("/webhook")
 async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = None):
