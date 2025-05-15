@@ -102,6 +102,8 @@ async def register_webhook(request: Request):
             target_url = f"{base_url}/webhook"
             print(f"  Using target URL: {target_url}")
             print(f"  For Asana Project ID: {ASANA_PROJECT_ID}")
+            print(f"  Request headers: {dict(request.headers)}")
+            print(f"  Request URL: {request.url}")
 
             # First, verify the project exists
             try:
@@ -227,6 +229,15 @@ async def send_slack_message(message: SlackMessage):
             status_code=500,
             detail=f"Unexpected error: {str(e)}"
         )
+
+@app.get("/test-webhook")
+async def test_webhook():
+    """Test endpoint to verify webhook accessibility."""
+    return {
+        "status": "success",
+        "message": "Webhook endpoint is accessible",
+        "timestamp": datetime.datetime.now().isoformat()
+    }
 
 if __name__ == "__main__":
     import uvicorn
