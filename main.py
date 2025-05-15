@@ -400,6 +400,50 @@ async def list_existing_webhooks():
         print(f"❌ Error listing webhooks: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/webhooks/{webhook_gid}")
+async def delete_webhook(webhook_gid: str):
+    """Delete a webhook by its GID."""
+    if not ASANA_ACCESS_TOKEN:
+        raise HTTPException(status_code=500, detail="Missing required Asana configuration")
+    
+    try:
+        print(f"\n🗑️ Deleting webhook {webhook_gid}...")
+        client = await get_asana_client()
+        
+        try:
+            response = await client.delete(f"/webhooks/{webhook_gid}")
+            response.raise_for_status()
+            
+            print(f"  ✅ Successfully deleted webhook {webhook_gid}")
+            
+            return {
+                "status": "success",
+                "message": f"Webhook {webhook_gid} deleted successfully"
+            }
+            
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            try:
+                error_json = json.loads(error_body)
+                error_message = error_json.get('errors', [{}])[0].get('message', str(e))
+            except:
+                error_message = str(e)
+            
+            print(f"  ❌ Asana API error: {error_message}")
+            print(f"  Response status: {e.response.status_code}")
+            print(f"  Response body: {error_body}")
+            
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Asana API error: {error_message}"
+            )
+        finally:
+            await client.aclose()
+            
+    except Exception as e:
+        print(f"❌ Error deleting webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/send-slack-message")
 async def send_slack_message(message: SlackMessage):
     """Send a message to a Slack channel."""
