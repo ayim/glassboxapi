@@ -170,17 +170,33 @@ async def asana_callback(request: Request, code: str):
 
 @app.post("/webhook")
 async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = None):
+    """Handle Asana webhook events and handshake."""
+    # Log all incoming requests
+    print(f"\n📥 Received webhook request at {datetime.datetime.now().isoformat()}")
+    print(f"  Headers: {dict(request.headers)}")
+    
     # Handle webhook verification (handshake)
     x_hook_secret = request.headers.get("X-Hook-Secret")
     if x_hook_secret:
-        print(f"\n🤝 Asana handshake received at {datetime.datetime.now().isoformat()}")
-        return Response(status_code=200, headers={"X-Hook-Secret": x_hook_secret})
+        print(f"🤝 Asana handshake received")
+        print(f"  X-Hook-Secret: {x_hook_secret}")
+        # Return immediately with the same secret
+        return Response(
+            status_code=200,
+            headers={"X-Hook-Secret": x_hook_secret},
+            content="Handshake successful"
+        )
 
+    # Handle empty or invalid payloads
     if not payload or not payload.events:
-        return Response(status_code=200, content="Acknowledged empty or invalid payload.")
+        print("⚠️ Empty or invalid payload received")
+        return Response(
+            status_code=200,
+            content="Acknowledged empty or invalid payload."
+        )
 
     # Process webhook events
-    print("\n🔄 Received Asana webhook event:")
+    print("\n🔄 Processing Asana webhook event:")
     for event_data in payload.events:
         resource = event_data.resource if event_data.resource else {}
         resource_gid = resource.get("gid", "N/A")
@@ -191,85 +207,123 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
         print(f"  Resource GID: {resource_gid}")
         print(f"  Resource Type: {resource_type}")
 
-    return {"status": "success", "message": "Webhook event processed"}
+    return Response(
+        status_code=200,
+        content="Webhook event processed successfully"
+    )
 
 @app.post("/register-webhook")
 async def register_webhook(request: Request):
+    """Register a webhook with Asana."""
+    print("\n🔍 Starting webhook registration process...")
+    
     if not all([ASANA_ACCESS_TOKEN, ASANA_PROJECT_ID]):
+        print("❌ Missing configuration:")
+        print(f"  ASANA_ACCESS_TOKEN present: {bool(ASANA_ACCESS_TOKEN)}")
+        print(f"  ASANA_PROJECT_ID present: {bool(ASANA_PROJECT_ID)}")
         raise HTTPException(status_code=500, detail="Missing required Asana configuration")
     
     try:
         print("\n🚀 Registering webhook with Asana...")
-        with get_asana_client() as client:
-            # Get the base URL from the request
-            base_url = str(request.base_url).rstrip('/')
-            target_url = f"{base_url}/webhook"
-            print(f"  Using target URL: {target_url}")
-            print(f"  For Asana Project ID: {ASANA_PROJECT_ID}")
-            print(f"  Request headers: {dict(request.headers)}")
-            print(f"  Request URL: {request.url}")
+        print(f"  Access Token: {ASANA_ACCESS_TOKEN[:10]}...")  # Log first 10 chars of token
+        
+        print("  Creating Asana client...")
+        client = get_asana_client()
+        print("  ✅ Asana client created successfully")
+        
+        # Get the base URL from the request
+        base_url = str(request.base_url).rstrip('/')
+        target_url = f"{base_url}/webhook"
+        print(f"  Using target URL: {target_url}")
+        print(f"  For Asana Project ID: {ASANA_PROJECT_ID}")
+        print(f"  Request headers: {dict(request.headers)}")
+        print(f"  Request URL: {request.url}")
 
-            # First, verify the project exists
-            try:
-                project_response = client.get(f"/projects/{ASANA_PROJECT_ID}")
-                project_response.raise_for_status()
-                print(f"  Project verification successful: {project_response.json()}")
-            except Exception as e:
-                print(f"  ❌ Project verification failed: {str(e)}")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid project ID or insufficient permissions: {str(e)}"
-                )
+        # First, verify the project exists
+        try:
+            print("  🔍 Verifying project exists...")
+            project_response = client.get(f"/projects/{ASANA_PROJECT_ID}")
+            print("  Project response received")
+            project_response.raise_for_status()
+            print(f"  ✅ Project verification successful: {project_response.json()}")
+        except Exception as e:
+            print(f"  ❌ Project verification failed: {str(e)}")
+            print(f"  Error type: {type(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid project ID or insufficient permissions: {str(e)}"
+            )
 
-            registration_payload = {
-                "data": {
-                    "resource": ASANA_PROJECT_ID,
-                    "target": target_url,
-                    "filters": [
-                        {
-                            "resource_type": "project",
-                            "action": "changed"
-                        }
-                    ]
-                }
+        # Prepare the registration payload
+        print("  Preparing registration payload...")
+        registration_payload = {
+            "data": {
+                "resource": ASANA_PROJECT_ID,
+                "target": target_url,
+                "filters": [
+                    {
+                        "resource_type": "project",
+                        "action": "changed"
+                    }
+                ]
             }
+        }
+        
+        print(f"  Registration payload: {json.dumps(registration_payload, indent=2)}")
+        
+        # Try to register the webhook
+        print("  About to attempt webhook registration...")
+        try:
+            print("  📤 Sending webhook registration request to Asana...")
+            print("  Request URL: https://app.asana.com/api/1.0/webhooks")
+            print("  Request Headers:", client.headers)
             
-            print(f"  Registration payload: {json.dumps(registration_payload, indent=2)}")
+            response = client.post("/webhooks", json=registration_payload)
+            print("  📥 Received response from Asana")
+            print(f"  Response Status: {response.status_code}")
+            print(f"  Response Headers: {dict(response.headers)}")
             
-            # Try to register the webhook
+            response.raise_for_status()
+            
+            webhook_data = response.json().get('data', {})
+            print(f"\n✅ Webhook registered successfully:")
+            print(f"  Webhook GID: {webhook_data.get('gid')}")
+            print(f"  Target URL: {webhook_data.get('target')}")
+            print(f"  Active: {webhook_data.get('active')}")
+            
+            return {"status": "success", "webhook_details": webhook_data}
+            
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
             try:
-                response = client.post("/webhooks", json=registration_payload)
-                response.raise_for_status()
-                
-                webhook_data = response.json().get('data', {})
-                print(f"\n✅ Webhook registered successfully:")
-                print(f"  Webhook GID: {webhook_data.get('gid')}")
-                print(f"  Target URL: {webhook_data.get('target')}")
-                print(f"  Active: {webhook_data.get('active')}")
-                
-                return {"status": "success", "webhook_details": webhook_data}
-                
-            except httpx.HTTPStatusError as e:
-                error_body = e.response.text
-                try:
-                    error_json = json.loads(error_body)
-                    error_message = error_json.get('errors', [{}])[0].get('message', str(e))
-                except:
-                    error_message = str(e)
-                
-                print(f"  ❌ Asana API error: {error_message}")
-                print(f"  Response status: {e.response.status_code}")
-                print(f"  Response body: {error_body}")
-                
-                raise HTTPException(
-                    status_code=e.response.status_code,
-                    detail=f"Asana API error: {error_message}"
-                )
+                error_json = json.loads(error_body)
+                error_message = error_json.get('errors', [{}])[0].get('message', str(e))
+            except:
+                error_message = str(e)
             
+            print(f"  ❌ Asana API error: {error_message}")
+            print(f"  Response status: {e.response.status_code}")
+            print(f"  Response body: {error_body}")
+            print(f"  Response headers: {dict(e.response.headers)}")
+            
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=f"Asana API error: {error_message}"
+            )
+        except Exception as e:
+            print(f"  ❌ Unexpected error during webhook registration: {str(e)}")
+            print(f"  Error type: {type(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error during webhook registration: {str(e)}"
+            )
+        
     except HTTPException:
+        print("  ❌ HTTP Exception raised")
         raise
     except Exception as e:
         print(f"  ❌ Unexpected error: {str(e)}")
+        print(f"  Error type: {type(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error: {str(e)}"
