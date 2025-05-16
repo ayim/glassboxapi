@@ -270,7 +270,7 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                     print("🚨 Task assigned to claims agent - preparing Slack notification")
                     # Prepare Slack message (now with LLM output)
                     slack_message = {
-                        "text": f"Task {task_name} has been assigned to Claims Agent",
+                        "text": f"Task {task_name} has been routed to {routing_decision}\nChain of Thought: {chain_of_thought}\nConfidences: {confidences}",
                         "channel": "#claims-escalation",
                         "blocks": [
                             {
@@ -281,15 +281,18 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                                 }
                             },
                             {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"*Routing Decision:*\n{routing_decision}"
+                                }
+                            },
+                            {
                                 "type": "context",
                                 "elements": [
                                     {
                                         "type": "mrkdwn",
                                         "text": f"*Chain of Thought:* {chain_of_thought}"
-                                    },
-                                    {
-                                        "type": "mrkdwn",
-                                        "text": f"*Routing Decision:* {routing_decision}"
                                     },
                                     {
                                         "type": "mrkdwn",
