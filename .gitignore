@@ -119,3 +119,5 @@ dmypy.json
 
 # pytype static analysis results
 .pytype/
+.DS_Store
+agent/.DS_Store
