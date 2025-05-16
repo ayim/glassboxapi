@@ -266,7 +266,17 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 confidences = llm_output.get("confidences", {})
 
                 # Post the analysis as a comment on the Asana task
-                comment_text = f"🤖 *AI Analysis*\n\n*Routing Decision:* {routing_decision}\n\n*Chain of Thought:* {chain_of_thought}\n\n*Confidences:* {confidences}"
+                comment_text = (
+                    "🤖 *AI Analysis Report*\n\n"
+                    "*Initial Diagnosis*\n"
+                    f"{chain_of_thought}\n\n"
+                    "*Tools and Documents Referenced*\n"
+                    f"{'; '.join(attachment_urls) if attachment_urls else 'No documents attached'}\n\n"
+                    "*Next Call / Final Call*\n"
+                    f"Based on the analysis, this issue will be routed to: {routing_decision}\n\n"
+                    "*Final Decision*\n"
+                    f"Confidence levels for each potential route:\n{json.dumps(confidences, indent=2)}"
+                )
                 try:
                     comment_response = await client.post(
                         f"/tasks/{resource_gid}/stories",
