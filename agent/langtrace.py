@@ -7,7 +7,6 @@ from time import sleep
 import json
 import os
 # Import mock inputs for testing
-import tests.mock_inputs as case
 from tools_and_agents import TOOLS, AGENTS, get_tool_by_name
 from prompts import get_orchestrator_prompt
 from tool_functions import (
@@ -201,4 +200,5 @@ def runnable_agent(case_dict):
     }
 
 if __name__ == "__main__":
+    import tests.mock_inputs as case
     result = runnable_agent(case.MOCK_CASE_5)
