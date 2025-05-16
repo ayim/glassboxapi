@@ -7,7 +7,7 @@ from time import sleep
 import json
 import os
 # Import mock inputs for testing
-from tools_and_agents import TOOLS, AGENTS, get_tool_by_name
+from .tools_and_agents import TOOLS, AGENTS, get_tool_by_name
 from prompts import get_orchestrator_prompt
 from tool_functions import (
     search_latest_knowledge,
