@@ -209,10 +209,10 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
         
         # Check if this is a task update
         if resource_type == "task" and action == "changed":
-            # Check if the change is related to the task's description/notes
+            # Check if the change is related to the task's assignee
             change = event_data.change if event_data.change else {}
-            if not any(field in change for field in ["notes", "description"]):
-                print(f"Skipping non-description change: {change}")
+            if "assignee" not in change:
+                print(f"Skipping non-assignee change: {change}")
                 continue
 
             try:
@@ -229,6 +229,11 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 task_name = task_data.get("name", "Unnamed Task")
                 task_url = f"https://app.asana.com/0/{ASANA_PROJECT_ID}/{resource_gid}"
                 
+                # Only proceed if the task is assigned to Glassbox
+                if assignee_name.lower() != "glassbox":
+                    print(f"Skipping task not assigned to Glassbox. Current assignee: {assignee_name}")
+                    continue
+
                 # Fetch the issue description (notes field)
                 issue_description = task_data.get("notes", "")
                 print(f"Task Name: {task_name}")
