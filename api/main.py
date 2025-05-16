@@ -265,6 +265,23 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 routing_decision = llm_output.get("routing_decision", [])
                 confidences = llm_output.get("confidences", {})
 
+                # Post the analysis as a comment on the Asana task
+                comment_text = f"🤖 *AI Analysis*\n\n*Routing Decision:* {routing_decision}\n\n*Chain of Thought:* {chain_of_thought}\n\n*Confidences:* {confidences}"
+                try:
+                    comment_response = await client.post(
+                        f"/tasks/{resource_gid}/stories",
+                        json={
+                            "data": {
+                                "text": comment_text,
+                                "type": "comment"
+                            }
+                        }
+                    )
+                    comment_response.raise_for_status()
+                    print(f"✅ Posted analysis as comment on Asana task")
+                except Exception as e:
+                    print(f"❌ Failed to post comment on Asana task: {str(e)}")
+
                 # Check if assigned to claims agent
                 if assignee_name.lower() == "glassbox":
                     print("🚨 Task assigned to claims agent - preparing Slack notification")
