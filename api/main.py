@@ -209,6 +209,12 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
         
         # Check if this is a task update
         if resource_type == "task" and action == "changed":
+            # Check if the change is related to the task's description/notes
+            change = event_data.change if event_data.change else {}
+            if not any(field in change for field in ["notes", "description"]):
+                print(f"Skipping non-description change: {change}")
+                continue
+
             try:
                 client = await get_asana_client()
                 print(f"Fetching task details for GID: {resource_gid}")
