@@ -287,14 +287,20 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                     "regulatory_sustainability": {
                         "asana_section": "Agent Handoff: Regulatory and Sustainability",
                         "slack_channel": "#cases-escalation-regulatory-sustainability"
+                    },
+                    "sourcing_logistics": {
+                        "asana_section": "Routine Processing",
+                        "slack_channel": "#cases-routine-processing"
                     }
                 }
 
                 # Move task to appropriate section in Asana if routing decision matches
                 if routing_decision and isinstance(routing_decision, list) and len(routing_decision) > 0:
                     primary_route = routing_decision[0].lower()
+                    print(f"Checking if '{primary_route}' exists in routing_mapping for task movement")
                     if primary_route in routing_mapping:
                         try:
+                            print(f"Attempting to move task to section: {routing_mapping[primary_route]['asana_section']}")
                             # First, get all sections in the project
                             sections_response = await client.get(f"/projects/{ASANA_PROJECT_ID}/sections")
                             sections_response.raise_for_status()
@@ -302,13 +308,16 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                             
                             # Find the target section
                             target_section = None
+                            print(f"Looking for section named '{routing_mapping[primary_route]['asana_section']}' among {len(sections_data)} sections")
                             for section in sections_data:
                                 if section.get("name") == routing_mapping[primary_route]["asana_section"]:
                                     target_section = section
+                                    print(f"Found target section with GID: {section.get('gid')}")
                                     break
                             
                             if target_section:
                                 # Move the task to the target section
+                                print(f"Moving task {resource_gid} to section {target_section['gid']} in project {ASANA_PROJECT_ID}")
                                 move_response = await client.post(
                                     f"/tasks/{resource_gid}/addProject",
                                     json={
@@ -320,10 +329,20 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                                 )
                                 move_response.raise_for_status()
                                 print(f"✅ Moved task to section: {routing_mapping[primary_route]['asana_section']}")
+                                print(f"Response: {move_response.json()}")
                             else:
                                 print(f"⚠️ Target section not found: {routing_mapping[primary_route]['asana_section']}")
+                                print(f"Available sections: {[s.get('name') for s in sections_data]}")
                         except Exception as e:
                             print(f"❌ Failed to move task to section: {str(e)}")
+                            import traceback
+                            print(f"Traceback: {traceback.format_exc()}")
+                    else:
+                        print(f"⚠️ Primary route '{primary_route}' not found in routing_mapping, cannot move task")
+                        print(f"Available routes in mapping: {list(routing_mapping.keys())}")
+                else:
+                    print(f"⚠️ No valid routing decision to determine task movement")
+                    print(f"Routing decision: {routing_decision}")
 
                 # Post the analysis as a comment on the Asana task
                 comment_text = (
@@ -355,51 +374,79 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 # Check if assigned to claims agent
                 if assignee_name.lower() == "glassbox":
                     print("🚨 Task assigned to claims agent - preparing Slack notification")
-                    # Prepare Slack message (now with LLM output)
-                    slack_message = {
-                        "text": f"Task {task_name} has been routed to {routing_decision}\nChain of Thought: {chain_of_thought}\nConfidences: {confidences}",
-                        "channel": routing_mapping.get(primary_route, {}).get("slack_channel", "#claims-escalation"),
-                        "blocks": [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f"🔺 *Task escalated by agent*\nTask ID: `{resource_gid}`\n<{task_url}|View task in Asana>"
-                                }
-                            },
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f"*Routing Decision:*\n{routing_decision}"
-                                }
-                            },
-                            {
-                                "type": "context",
-                                "elements": [
-                                    {
-                                        "type": "mrkdwn",
-                                        "text": f"*Chain of Thought:* {chain_of_thought}"
-                                    },
-                                    {
-                                        "type": "mrkdwn",
-                                        "text": f"*Confidences:* {confidences}"
-                                    },
-                                    {
-                                        "type": "mrkdwn",
-                                        "text": f"*Attachments:* {'; '.join(attachment_urls) if attachment_urls else 'None'}"
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                    print(f"Sending Slack message: {slack_message}")
-                    # Send to Slack (after LLM output is ready)
                     try:
-                        slack_response = slack_client.chat_postMessage(**slack_message)
-                        print(f"✅ Slack notification sent successfully: {slack_response}")
-                    except SlackApiError as e:
-                        print(f"❌ Failed to send Slack notification: {str(e)}")
+                        # Get primary route for channel selection
+                        primary_route = ""
+                        if routing_decision and isinstance(routing_decision, list) and len(routing_decision) > 0:
+                            primary_route = routing_decision[0].lower()
+                            print(f"Primary route: {primary_route}")
+                        
+                        # Check if route exists in mapping
+                        if primary_route not in routing_mapping:
+                            print(f"⚠️ Warning: Primary route '{primary_route}' not found in routing_mapping")
+                            slack_channel = "#claims-escalation"
+                        else:
+                            slack_channel = routing_mapping.get(primary_route, {}).get("slack_channel", "#claims-escalation")
+                        
+                        print(f"Selected Slack channel: {slack_channel}")
+                        
+                        # Debug data going into Slack message
+                        print(f"Task name: {task_name}")
+                        print(f"Routing decision type: {type(routing_decision)}, value: {routing_decision}")
+                        print(f"Chain of thought type: {type(chain_of_thought)}, length: {len(str(chain_of_thought))}")
+                        
+                        # Prepare Slack message (now with LLM output)
+                        slack_message = {
+                            "text": f"Task {task_name} has been routed to {routing_decision}",
+                            "channel": slack_channel,
+                            "blocks": [
+                                {
+                                    "type": "section",
+                                    "text": {
+                                        "type": "mrkdwn",
+                                        "text": f"🔺 *Task escalated by agent*\nTask ID: `{resource_gid}`\n<{task_url}|View task in Asana>"
+                                    }
+                                },
+                                {
+                                    "type": "section",
+                                    "text": {
+                                        "type": "mrkdwn",
+                                        "text": f"*Routing Decision:*\n{routing_decision}"
+                                    }
+                                },
+                                {
+                                    "type": "context",
+                                    "elements": [
+                                        {
+                                            "type": "mrkdwn",
+                                            "text": f"*Chain of Thought:* {chain_of_thought[:500]}..." if len(str(chain_of_thought)) > 500 else f"*Chain of Thought:* {chain_of_thought}"
+                                        },
+                                        {
+                                            "type": "mrkdwn", 
+                                            "text": f"*Confidences:* {str(confidences)[:500]}..." if len(str(confidences)) > 500 else f"*Confidences:* {confidences}"
+                                        },
+                                        {
+                                            "type": "mrkdwn",
+                                            "text": f"*Attachments:* {'; '.join(attachment_urls) if attachment_urls else 'None'}"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                        print(f"Prepared Slack message structure")
+                        
+                        # Send to Slack (after LLM output is ready)
+                        try:
+                            print(f"Attempting to send Slack message to channel: {slack_message['channel']}")
+                            slack_response = slack_client.chat_postMessage(**slack_message)
+                            print(f"✅ Slack notification sent successfully: {slack_response}")
+                        except SlackApiError as e:
+                            print(f"❌ Failed to send Slack notification: {str(e)}")
+                            print(f"Error details: {e.response.data}")
+                    except Exception as e:
+                        print(f"❌ Error preparing or sending Slack notification: {str(e)}")
+                        import traceback
+                        print(f"Traceback: {traceback.format_exc()}")
                 await client.aclose()
             except Exception as e:
                 print(f"⚠️ Failed to fetch task details: {str(e)}")
