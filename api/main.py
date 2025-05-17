@@ -282,15 +282,28 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 routing_mapping = {
                     "declaration_review": {
                         "asana_section": "Escalation: Declaration Review / Ambiguity",
-                        "slack_channel": "#cases-escalation-ambiguous-regulation"
+                        "slack_channel": "#cases-escalation-ambiguous-regulation",
+                        "next_step": "Escalation: Ambiguous"
                     },
                     "regulatory_sustainability": {
                         "asana_section": "Agent Handoff: Regulatory and Sustainability",
-                        "slack_channel": "#cases-escalation-regulatory-sustainability"
+                        "slack_channel": "#cases-escalation-regulatory-sustainability",
+                        "next_step": "Escalation: High Risk"
                     },
                     "sourcing_logistics": {
                         "asana_section": "Routine Processing",
-                        "slack_channel": "#cases-handoff-sourcing-logistics"
+                        "slack_channel": "#cases-handoff-sourcing-logistics",
+                        "next_step": "Approval: Agent Handoff"
+                    },
+                    "done": {
+                        "asana_section": "Routine Processing",
+                        "slack_channel": "#general",
+                        "next_step": "Customer Reachout"
+                    },
+                    "submission_review": {  # This is a placeholder for a future agent
+                        "asana_section": "Routine Processing",
+                        "slack_channel": "#cases-submission-review",
+                        "next_step": "Approval: Submission"
                     }
                 }
 
@@ -330,6 +343,58 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                                 move_response.raise_for_status()
                                 print(f"✅ Moved task to section: {routing_mapping[primary_route]['asana_section']}")
                                 print(f"Response: {move_response.json()}")
+                                
+                                # Now update the "Next Step" custom field
+                                try:
+                                    # Get the task's custom fields
+                                    task_detail_response = await client.get(f"/tasks/{resource_gid}?opt_fields=custom_fields")
+                                    task_detail_response.raise_for_status()
+                                    task_details = task_detail_response.json().get("data", {})
+                                    custom_fields = task_details.get("custom_fields", [])
+                                    
+                                    # Find the "Next Step" custom field
+                                    next_step_field = None
+                                    for field in custom_fields:
+                                        if field.get("name") == "Next Step":
+                                            next_step_field = field
+                                            break
+                                    
+                                    if next_step_field:
+                                        next_step_gid = next_step_field.get("gid")
+                                        enum_options = next_step_field.get("enum_options", [])
+                                        target_next_step = routing_mapping[primary_route].get("next_step")
+                                        
+                                        # Find the enum option that matches our target next step
+                                        target_enum_option = None
+                                        for option in enum_options:
+                                            if option.get("name") == target_next_step:
+                                                target_enum_option = option
+                                                break
+                                        
+                                        if target_enum_option:
+                                            enum_value_gid = target_enum_option.get("gid")
+                                            # Update the custom field
+                                            update_response = await client.put(
+                                                f"/tasks/{resource_gid}",
+                                                json={
+                                                    "data": {
+                                                        "custom_fields": {
+                                                            next_step_gid: enum_value_gid
+                                                        }
+                                                    }
+                                                }
+                                            )
+                                            update_response.raise_for_status()
+                                            print(f"✅ Updated Next Step to: {target_next_step}")
+                                        else:
+                                            print(f"⚠️ Could not find enum option for Next Step: {target_next_step}")
+                                            print(f"Available options: {[opt.get('name') for opt in enum_options]}")
+                                    else:
+                                        print("⚠️ Could not find 'Next Step' custom field")
+                                except Exception as e:
+                                    print(f"❌ Failed to update Next Step custom field: {str(e)}")
+                                    import traceback
+                                    print(f"Traceback: {traceback.format_exc()}")
                             else:
                                 print(f"⚠️ Target section not found: {routing_mapping[primary_route]['asana_section']}")
                                 print(f"Available sections: {[s.get('name') for s in sections_data]}")

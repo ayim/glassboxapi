@@ -43,6 +43,10 @@ AGENTS = [
         "name": "sourcing_logistics",
         "description": "Use when everything is in order and the shipment is routine, well-documented, and ready for normal processing.",
     },
+    {
+        "name": "submission_review",
+        "description": "Use when client submission requires formal review, including compliance check, documentation validation, and preliminary classification.",
+    },
 ]
 
 def get_tool_by_name(name):
