@@ -275,7 +275,7 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 # Use the LLM output for the Slack message
                 llm_output = agent_result.get("parsed_llm", {})
                 chain_of_thought = llm_output.get("chain_of_thought", "")
-                routing_decision = llm_output.get("routing_decision", [])
+                routing_decision = llm_output.get("routing_decision", "")
                 confidences = llm_output.get("confidences", {})
 
                 # Map routing decisions to Asana sections and Slack channels
@@ -295,8 +295,8 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 }
 
                 # Move task to appropriate section in Asana if routing decision matches
-                if routing_decision and isinstance(routing_decision, list) and len(routing_decision) > 0:
-                    primary_route = routing_decision[0].lower()
+                if routing_decision and isinstance(routing_decision, str) and routing_decision.strip():
+                    primary_route = routing_decision.lower()
                     print(f"Checking if '{primary_route}' exists in routing_mapping for task movement")
                     if primary_route in routing_mapping:
                         try:
@@ -377,8 +377,8 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                     try:
                         # Get primary route for channel selection
                         primary_route = ""
-                        if routing_decision and isinstance(routing_decision, list) and len(routing_decision) > 0:
-                            primary_route = routing_decision[0].lower()
+                        if routing_decision and isinstance(routing_decision, str) and routing_decision.strip():
+                            primary_route = routing_decision.lower()
                             print(f"Primary route: {primary_route}")
                         
                         # Check if route exists in mapping

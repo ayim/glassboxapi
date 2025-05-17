@@ -99,15 +99,16 @@ def agent_output_parser(llm_response):
     try:
         content = get_llm_content(llm_response)
         data = json.loads(content)
+        # Extract routing_decision as a string instead of a list
         return {
             "chain_of_thought": data.get("chain_of_thought", ""),
-            "routing_decision": data.get("routing_decision", []),
+            "routing_decision": data.get("routing_decision", ""),
             "confidences": data.get("confidences", {})
         }
     except Exception:
         return {
             "chain_of_thought": "Could not parse LLM output.",
-            "routing_decision": [],
+            "routing_decision": "",
             "confidences": {}
         }
 
@@ -179,21 +180,19 @@ def runnable_agent(case_dict):
         for tool_name in plan_tools:
             if tool_name and tool_name not in context["tool_outputs"] and tool_name not in allowed_agents and tool_name != "done":
                 context["tool_outputs"][tool_name] = execute_tool(tool_name, question)
-        routing_decision = orchestrator_result.get("routing_decision", [])
-        normalized = [a.lower().strip() for a in routing_decision]
-        if all(agent in allowed_agents for agent in normalized) or normalized == ["done"]:
+        
+        routing_decision = orchestrator_result.get("routing_decision", "")
+        
+        # Check if we're ready for a final decision
+        if routing_decision.lower().strip() in allowed_agents or routing_decision.lower().strip() == "done":
             break
-        # routing_decision can be a list of tool names
-        for tool_name in routing_decision:
-            if tool_name in context["tool_outputs"]:
-                continue
-            if isinstance(tool_name, list):
-                for t in tool_name:
-                    if t not in context["tool_outputs"]:
-                        context["tool_outputs"][t] = execute_tool(t, question)
-            else:
-                context["tool_outputs"][tool_name] = execute_tool(tool_name, question)
+        
+        # If routing_decision is a tool name, execute it
+        if routing_decision and routing_decision not in context["tool_outputs"] and routing_decision not in allowed_agents and routing_decision != "done":
+            context["tool_outputs"][routing_decision] = execute_tool(routing_decision, question)
+        
         steps += 1
+    
     return {
         "trajectory": trajectory,
         "final_decision": orchestrator_result
