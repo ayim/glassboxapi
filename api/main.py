@@ -211,7 +211,9 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
         if resource_type == "task" and action == "changed":
             # Check if the change is related to the task's assignee
             change = event_data.change if event_data.change else {}
-            if "assignee" not in change:
+            print(f"Debug - Change object: {change}")
+            print(f"Debug - Change field: {change.get('field')}")
+            if not change.get("field") or change.get("field").strip().lower() != "assignee":
                 print(f"Skipping non-assignee change: {change}")
                 continue
 
