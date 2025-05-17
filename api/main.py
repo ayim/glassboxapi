@@ -278,6 +278,53 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                 routing_decision = llm_output.get("routing_decision", [])
                 confidences = llm_output.get("confidences", {})
 
+                # Map routing decisions to Asana sections and Slack channels
+                routing_mapping = {
+                    "declaration_review": {
+                        "asana_section": "Escalation: Declaration Review / Ambiguity",
+                        "slack_channel": "#cases-escalation-ambiguous-regulation"
+                    },
+                    "regulatory_sustainability": {
+                        "asana_section": "Agent Handoff: Regulatory and Sustainability",
+                        "slack_channel": "#cases-escalation-regulatory-sustainability"
+                    }
+                }
+
+                # Move task to appropriate section in Asana if routing decision matches
+                if routing_decision and isinstance(routing_decision, list) and len(routing_decision) > 0:
+                    primary_route = routing_decision[0].lower()
+                    if primary_route in routing_mapping:
+                        try:
+                            # First, get all sections in the project
+                            sections_response = await client.get(f"/projects/{ASANA_PROJECT_ID}/sections")
+                            sections_response.raise_for_status()
+                            sections_data = sections_response.json().get("data", [])
+                            
+                            # Find the target section
+                            target_section = None
+                            for section in sections_data:
+                                if section.get("name") == routing_mapping[primary_route]["asana_section"]:
+                                    target_section = section
+                                    break
+                            
+                            if target_section:
+                                # Move the task to the target section
+                                move_response = await client.post(
+                                    f"/tasks/{resource_gid}/addProject",
+                                    json={
+                                        "data": {
+                                            "project": ASANA_PROJECT_ID,
+                                            "section": target_section["gid"]
+                                        }
+                                    }
+                                )
+                                move_response.raise_for_status()
+                                print(f"✅ Moved task to section: {routing_mapping[primary_route]['asana_section']}")
+                            else:
+                                print(f"⚠️ Target section not found: {routing_mapping[primary_route]['asana_section']}")
+                        except Exception as e:
+                            print(f"❌ Failed to move task to section: {str(e)}")
+
                 # Post the analysis as a comment on the Asana task
                 comment_text = (
                     "🤖 *AI Analysis Report*\n\n"
@@ -311,7 +358,7 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                     # Prepare Slack message (now with LLM output)
                     slack_message = {
                         "text": f"Task {task_name} has been routed to {routing_decision}\nChain of Thought: {chain_of_thought}\nConfidences: {confidences}",
-                        "channel": "#claims-escalation",
+                        "channel": routing_mapping.get(primary_route, {}).get("slack_channel", "#claims-escalation"),
                         "blocks": [
                             {
                                 "type": "section",
