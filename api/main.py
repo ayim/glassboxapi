@@ -290,7 +290,7 @@ async def asana_webhook(request: Request, payload: Optional[WebhookPayload] = No
                     },
                     "sourcing_logistics": {
                         "asana_section": "Routine Processing",
-                        "slack_channel": "#cases-routine-processing"
+                        "slack_channel": "#cases-handoff-sourcing-logistics"
                     }
                 }
 
